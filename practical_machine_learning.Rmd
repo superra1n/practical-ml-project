@@ -1,0 +1,109 @@
+---
+title: "Practical Machine Learning Project"
+author: "Tzu-Chun Liang"
+date: "2/6/2018"
+output: html_document
+---
+
+## Brief Summary
+
+The goal of of this project is to predict the "classe" variable in the training set provided by Groupwire@LES. The dataset contains information collected over weight lifting exercises using personal monitoring devices. The report covers data cleaning, predication model construction, and expected out-of-sample rate.
+
+## Setup
+
+1. Load the required package and CPU parameter
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(randomForest)
+library(rpart)
+library(ggplot2)
+doMC::registerDoMC(cores=2) ## utilize dual core for faster processing
+```
+
+2. Download the Data. (Provided by http://groupware.les.inf.puc-rio.br/har)
+```{r}
+trainingFileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testFileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+destfile1 = "./training.csv"
+destfile2 = "./test.csv"
+
+if(!file.exists(destfile1)) {
+  download.file(trainingFileURL, destfile1, method = "curl")
+  load("./training.csv")
+}
+
+if(!file.exists(destfile2)) {
+  download.file(testFileURL, destfile2, method = "curl")
+  load("./test.csv")
+}
+
+```
+
+3. Load data and perform feature selection by removing irrelavent columns.
+
+```{r}
+trainData <- read.csv(destfile1, na.string = c("NA", ""))
+testData <- read.csv(destfile2, na.string = c("NA", ""))
+colnames(trainData)
+uselessFeature <- c("X", "cvtd_timestamp", "user_name", 
+                    "raw_timestamp_part_1",
+                    "raw_timestamp_part_2",
+                    "new_window",
+                    "num_window")
+newTrainData <- trainData[,-which(names(trainData) %in% uselessFeature)]
+newTestData<- testData[,-which(names(testData) %in% uselessFeature)]
+```
+
+4. Clean the data by removing all NA columns.
+```{r}
+cleanedTrainData <- newTrainData[,colSums(is.na(newTrainData)) == 0]
+cleanedTestData <- newTestData[,colSums(is.na(newTestData)) == 0]
+dim(cleanedTrainData)
+dim(cleanedTestData)
+```
+
+5. Load data and split 1/4 of the cleaned training data as validation set.
+
+```{r}
+set.seed(2-6-2018)
+inTrain <- createDataPartition(cleanedTrainData$classe, p = 3/4)[[1]]
+training = cleanedTrainData[inTrain,]
+validation = cleanedTrainData[-inTrain,]
+```
+
+## Building Predication Models
+
+1. Build a first model using classification tree predication which is good for non-linear relationship, then apply the predication on the validation data to obtain the accuracy. Note the training control is changed from boostrapping to cross validation. The number of subsamples is reduced from 10 to 5 to save some computational time.
+```{r}
+fitControl <- trainControl(method = "cv", number = 5)
+model1 <- train(classe ~ ., data = training, method = "rpart", trControl = fitControl)
+print(model1)
+pred1 <- predict(model1, validation)
+cMatrix1 <- confusionMatrix(pred1, validation$classe)
+qplot(classe, pred1, data = validation,  colour = classe, geom = c("boxplot", "jitter"), main = "Predicted vs Observed Classe (validation data)", xlab = "Observed Classe", ylab = "Predicted Classe")
+cMatrix1$overall[1]
+```
+
+The accuracy of this model is 0.5513866, so the out-of-sample error rate is about 0.45.
+
+2. Build a second model similar to the first model but change the method to Random Forest.
+```{r}
+model2 <- randomForest(classe ~ ., data = training, trControl = fitControl)
+print(model2)
+pred2 <- predict(model2, validation)
+cMatrix2 <- confusionMatrix(pred2, validation$classe)
+qplot(classe, pred2, data = validation,  colour = classe, geom = c("boxplot", "jitter"), main = "Predicted vs Observed Classe (validation data)", xlab = "Observed Classe", ylab = "Predicted Classe")
+cMatrix2$overall[1]
+```
+
+The accuracy of the second model is 0.9965334 The out-of-sample error rate is about 0.004. This model performs much better than the first model.
+
+## Conclusion
+
+The second model (trained by Random Forest) is used to predict the classe variable of the test data.
+```{r}
+finalPred <- predict(model2, cleanedTestData)
+finalPred
+```
